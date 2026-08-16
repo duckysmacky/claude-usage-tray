@@ -27,6 +27,20 @@ struct OauthCredentials {
     access_token: String,
     #[serde(rename = "expiresAt")]
     expires_at: i64,
+    #[serde(rename = "subscriptionType")]
+    subscription_type: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct AccountConfigFile {
+    #[serde(rename = "oauthAccount")]
+    oauth_account: Option<OauthAccount>,
+}
+
+#[derive(Deserialize)]
+struct OauthAccount {
+    #[serde(rename = "emailAddress")]
+    email_address: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -42,9 +56,17 @@ struct Window {
 }
 
 enum Outcome {
-    Ok(UsageResponse),
+    Ok {
+        usage: UsageResponse,
+        plan: Option<String>,
+        email: Option<String>,
+    },
     NeedsLogin,
-    Transient(String),
+    Transient {
+        message: String,
+        plan: Option<String>,
+        email: Option<String>,
+    },
 }
 
 fn load_credentials(path: &Path) -> Option<OauthCredentials> {
@@ -77,6 +99,26 @@ fn load_credentials(path: &Path) -> Option<OauthCredentials> {
     Some(file.oauth)
 }
 
+fn load_account_email(path: &Path) -> Option<String> {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) => {
+            debug!(path = %path.display(), error = %e, "account config file not readable");
+            return None;
+        }
+    };
+
+    let file: AccountConfigFile = match serde_json::from_slice(&bytes) {
+        Ok(f) => f,
+        Err(e) => {
+            warn!(error = %e, "account config file present but failed to parse");
+            return None;
+        }
+    };
+
+    file.oauth_account.and_then(|a| a.email_address)
+}
+
 async fn detect_claude_version(fallback: &str) -> String {
     let output = Command::new("claude").arg("--version").output().await;
     let version = output.ok().and_then(|o| {
@@ -106,10 +148,18 @@ async fn detect_claude_version(fallback: &str) -> String {
     }
 }
 
-async fn poll_once(client: &reqwest::Client, user_agent: &str, credentials_path: &Path) -> Outcome {
+async fn poll_once(
+    client: &reqwest::Client,
+    user_agent: &str,
+    credentials_path: &Path,
+    account_config_path: &Path,
+) -> Outcome {
     let Some(creds) = load_credentials(credentials_path) else {
         return Outcome::NeedsLogin;
     };
+
+    let plan = creds.subscription_type;
+    let email = load_account_email(account_config_path);
 
     let response = client
         .get(USAGE_URL)
@@ -124,7 +174,11 @@ async fn poll_once(client: &reqwest::Client, user_agent: &str, credentials_path:
         Ok(r) => r,
         Err(e) => {
             warn!(error = %e, "usage request failed");
-            return Outcome::Transient(e.to_string());
+            return Outcome::Transient {
+                message: e.to_string(),
+                plan,
+                email,
+            };
         }
     };
 
@@ -134,14 +188,22 @@ async fn poll_once(client: &reqwest::Client, user_agent: &str, credentials_path:
     }
     if !response.status().is_success() {
         warn!(status = %response.status(), "usage endpoint returned non-success status");
-        return Outcome::Transient(format!("HTTP {}", response.status()));
+        return Outcome::Transient {
+            message: format!("HTTP {}", response.status()),
+            plan,
+            email,
+        };
     }
 
     match response.json::<UsageResponse>().await {
-        Ok(usage) => Outcome::Ok(usage),
+        Ok(usage) => Outcome::Ok { usage, plan, email },
         Err(e) => {
             warn!(error = %e, "failed to parse usage response");
-            Outcome::Transient(e.to_string())
+            Outcome::Transient {
+                message: e.to_string(),
+                plan,
+                email,
+            }
         }
     }
 }
@@ -161,20 +223,27 @@ pub async fn run(tx: watch::Sender<UsageState>, config: Config) {
     let version = detect_claude_version(&config.claude_fallback_version).await;
     let user_agent = format!("claude-code/{}", version);
     let credentials_path = config.credentials_path();
+    let account_config_path = config.account_config_path();
     let base_interval = config.poll_interval();
     let max_interval = config.max_poll_interval();
 
     let mut delay = base_interval;
 
     loop {
-        let outcome = poll_once(&client, &user_agent, &credentials_path).await;
+        let outcome = poll_once(
+            &client,
+            &user_agent,
+            &credentials_path,
+            &account_config_path,
+        )
+        .await;
 
         let next_state = match outcome {
-            Outcome::Ok(usage) => {
+            Outcome::Ok { usage, plan, email } => {
                 delay = base_interval;
                 let five_hour = usage.five_hour.as_ref().and_then(|w| w.utilization);
                 let weekly = usage.seven_day.as_ref().and_then(|w| w.utilization);
-                debug!(five_hour = ?five_hour, weekly = ?weekly, "usage updated");
+                debug!(five_hour = ?five_hour, weekly = ?weekly, plan = ?plan, email = ?email, "usage updated");
                 UsageState {
                     five_hour_usage: five_hour,
                     five_hour_resets_at: usage
@@ -188,18 +257,26 @@ pub async fn run(tx: watch::Sender<UsageState>, config: Config) {
                         .as_ref()
                         .and_then(|w| w.resets_at.as_deref())
                         .and_then(parse_reset),
+                    plan,
+                    account_email: email,
                     status: UsageStatus::Ok,
                 }
             }
-            Outcome::Transient(msg) => {
+            Outcome::Transient {
+                message,
+                plan,
+                email,
+            } => {
                 delay = (delay * 2).min(max_interval);
                 warn!(
-                    error = %msg,
+                    error = %message,
                     next_retry_secs = delay.as_secs(),
                     "transient error polling usage, backing off"
                 );
                 let mut state = tx.borrow().clone();
-                state.status = UsageStatus::Error(msg);
+                state.status = UsageStatus::Error(message);
+                state.plan = plan;
+                state.account_email = email;
                 state
             }
             Outcome::NeedsLogin => {

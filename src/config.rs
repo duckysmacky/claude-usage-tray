@@ -12,6 +12,7 @@ const DEFAULT_POLL_INTERVAL_SECS: u64 = 90;
 const DEFAULT_MAX_POLL_INTERVAL_SECS: u64 = 600;
 const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_CREDENTIALS_PATH: &str = "~/.claude/.credentials.json";
+const DEFAULT_ACCOUNT_CONFIG_PATH: &str = "~/.claude.json";
 const DEFAULT_CLAUDE_FALLBACK_VERSION: &str = "2.1.228";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -21,6 +22,7 @@ pub struct Config {
     pub max_poll_interval_secs: u64,
     pub request_timeout_secs: u64,
     pub credentials_path: String,
+    pub account_config_path: String,
     pub claude_fallback_version: String,
     pub display: DisplayConfig,
 }
@@ -32,6 +34,7 @@ impl Default for Config {
             max_poll_interval_secs: DEFAULT_MAX_POLL_INTERVAL_SECS,
             request_timeout_secs: DEFAULT_REQUEST_TIMEOUT_SECS,
             credentials_path: DEFAULT_CREDENTIALS_PATH.into(),
+            account_config_path: DEFAULT_ACCOUNT_CONFIG_PATH.into(),
             claude_fallback_version: DEFAULT_CLAUDE_FALLBACK_VERSION.into(),
             display: DisplayConfig::default(),
         }
@@ -43,6 +46,8 @@ impl Default for Config {
 pub struct DisplayConfig {
     pub show_five_hour_usage: bool,
     pub show_weekly_usage: bool,
+    pub show_plan: bool,
+    pub show_account: bool,
 }
 
 impl Default for DisplayConfig {
@@ -50,6 +55,8 @@ impl Default for DisplayConfig {
         Self {
             show_five_hour_usage: true,
             show_weekly_usage: true,
+            show_plan: true,
+            show_account: true,
         }
     }
 }
@@ -69,6 +76,10 @@ impl Config {
 
     pub fn credentials_path(&self) -> PathBuf {
         expand_tilde(&self.credentials_path)
+    }
+
+    pub fn account_config_path(&self) -> PathBuf {
+        expand_tilde(&self.account_config_path)
     }
 }
 

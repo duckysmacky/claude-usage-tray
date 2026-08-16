@@ -75,6 +75,13 @@ impl ksni::Tray for UsageTray {
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
         let mut items = vec![header_item(&self.state.status), MenuItem::Separator];
+
+        let account = account_rows(&self.state, &self.display);
+        if !account.is_empty() {
+            items.extend(account);
+            items.push(MenuItem::Separator);
+        }
+
         items.extend(usage_rows(&self.state, &self.display));
         items.push(MenuItem::Separator);
         items.push(
@@ -119,6 +126,32 @@ fn label_item(label: String) -> MenuItem<UsageTray> {
         ..Default::default()
     }
     .into()
+}
+
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+fn account_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<UsageTray>> {
+    let mut rows = Vec::new();
+    if display.show_plan {
+        let plan = state
+            .plan
+            .as_deref()
+            .map(capitalize)
+            .unwrap_or_else(|| "—".into());
+        rows.push(label_item(format!("Plan: {}", plan)));
+    }
+    if display.show_account {
+        rows.push(label_item(
+            state.account_email.clone().unwrap_or_else(|| "—".into()),
+        ));
+    }
+    rows
 }
 
 fn usage_line(label: &str, pct: Option<f64>, reset: Option<SystemTime>, stale: bool) -> String {
