@@ -1,4 +1,4 @@
-mod mock;
+mod fetch;
 mod state;
 mod tray;
 
@@ -14,13 +14,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (quit_tx, mut quit_rx) = mpsc::unbounded_channel();
 
     let handle = UsageTray::new(quit_tx).spawn().await?;
-    let mock_task = tokio::spawn(mock::run(state_tx));
+    let fetch_task = tokio::spawn(fetch::run(state_tx));
     let bridge_task = tokio::spawn(bridge(state_rx, handle.clone()));
 
     tokio::select! {
         _ = quit_rx.recv() => {}
         _ = tokio::signal::ctrl_c() => {}
-        _ = mock_task => {}
+        _ = fetch_task => {}
         _ = bridge_task => {}
     }
 

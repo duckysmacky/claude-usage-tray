@@ -6,6 +6,8 @@ use tokio::sync::mpsc;
 
 use crate::state::{UsageState, UsageStatus};
 
+const NEEDS_LOGIN_MSG: &str = "Not logged in - run `claude auth` to authenticate";
+
 pub struct UsageTray {
     state: UsageState,
     quit_tx: mpsc::UnboundedSender<()>,
@@ -56,8 +58,14 @@ impl ksni::Tray for UsageTray {
     }
 
     fn tool_tip(&self) -> ToolTip {
+        let description = match &self.state.status {
+            UsageStatus::Error(e) => format!("Unreachable: {}", escape(e)),
+            UsageStatus::NeedsLogin => NEEDS_LOGIN_MSG.into(),
+            UsageStatus::Ok | UsageStatus::Loading => String::new(),
+        };
         ToolTip {
             title: "Claude Usage".into(),
+            description,
             ..Default::default()
         }
     }
@@ -113,45 +121,61 @@ fn label_item(label: String) -> MenuItem<UsageTray> {
     .into()
 }
 
+fn usage_line(label: &str, pct: Option<f64>, reset: Option<SystemTime>, stale: bool) -> String {
+    match pct {
+        Some(pct) => {
+            let reset = reset.map(fmt_reset).unwrap_or_else(|| "unknown".into());
+            let suffix = if stale { " (last known)" } else { "" };
+            format!("{}: {:.0}% · resets {}{}", label, pct, reset, suffix)
+        }
+        None => format!("{}: no data", label),
+    }
+}
+
 fn usage_rows(state: &UsageState) -> Vec<MenuItem<UsageTray>> {
     match &state.status {
         UsageStatus::Loading => vec![
             label_item("Loading...".into())
         ],
         UsageStatus::NeedsLogin => vec![
-            label_item("Not logged in - run `claude auth` to authenticate".into())
+            label_item(NEEDS_LOGIN_MSG.into())
         ],
-        UsageStatus::Error(e) => vec![
-            label_item(format!("Error: {}", escape(e)))
-        ],
-        UsageStatus::Ok => {
-            let five_hour = state
-                .five_hour_usage
-                .map(|pct| {
-                    let reset = state
-                        .five_hour_resets_at
-                        .map(fmt_reset)
-                        .unwrap_or_else(|| "unknown".into());
-                    format!("5-hour: {:.0}% · resets {}", pct, reset)
-                })
-                .unwrap_or_else(|| "5-hour: no data".into());
-
-            let weekly = state
-                .weekly_usage
-                .map(|pct| {
-                    let reset = state
-                        .weekly_resets_at
-                        .map(fmt_reset)
-                        .unwrap_or_else(|| "unknown".into());
-                    format!("Weekly: {:.0}% · resets {}", pct, reset)
-                })
-                .unwrap_or_else(|| "Weekly: no data".into());
-
-            vec![
-                label_item(five_hour),
-                label_item(weekly)
-            ]
+        UsageStatus::Error(e) => {
+            if state.five_hour_usage.is_some() || state.weekly_usage.is_some() {
+                vec![
+                    label_item(usage_line(
+                        "5-hour",
+                        state.five_hour_usage,
+                        state.five_hour_resets_at,
+                        true,
+                    )),
+                    label_item(usage_line(
+                        "Weekly",
+                        state.weekly_usage,
+                        state.weekly_resets_at,
+                        true,
+                    )),
+                ]
+            } else {
+                vec![
+                    label_item(format!("Error: {}", escape(e)))
+                ]
+            }
         }
+        UsageStatus::Ok => vec![
+            label_item(usage_line(
+                "5-hour",
+                state.five_hour_usage,
+                state.five_hour_resets_at,
+                false,
+            )),
+            label_item(usage_line(
+                "Weekly",
+                state.weekly_usage,
+                state.weekly_resets_at,
+                false,
+            )),
+        ],
     }
 }
 
