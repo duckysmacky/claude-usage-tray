@@ -82,8 +82,11 @@ impl ksni::Tray for UsageTray {
             items.push(MenuItem::Separator);
         }
 
-        items.extend(usage_rows(&self.state, &self.display));
-        items.push(MenuItem::Separator);
+        let usage = usage_rows(&self.state, &self.display);
+        if !usage.is_empty() {
+            items.extend(usage);
+            items.push(MenuItem::Separator);
+        }
 
         let credits = credits_rows(&self.state, &self.display);
         if !credits.is_empty() {
@@ -144,8 +147,9 @@ fn capitalize(s: &str) -> String {
 }
 
 fn account_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<UsageTray>> {
+    let cfg = &display.account;
     let mut rows = Vec::new();
-    if display.show_plan {
+    if cfg.show && cfg.show_plan {
         let plan = state
             .plan
             .as_deref()
@@ -153,7 +157,7 @@ fn account_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<Usa
             .unwrap_or_else(|| "—".into());
         rows.push(label_item(format!("Plan: {}", plan)));
     }
-    if display.show_account {
+    if cfg.show && cfg.show_email {
         rows.push(label_item(
             state.account_email.clone().unwrap_or_else(|| "—".into()),
         ));
@@ -172,23 +176,24 @@ fn money_line(label: &str, money: Option<&Money>, stale: bool) -> String {
 }
 
 fn credits_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<UsageTray>> {
+    let cfg = &display.credits;
     let stale = matches!(state.status, UsageStatus::Error(_));
     let mut rows = Vec::new();
-    if display.show_credits_spent {
+    if cfg.show && cfg.show_spent {
         rows.push(label_item(money_line(
             "Spent",
             state.credits_spent.as_ref(),
             stale,
         )));
     }
-    if display.show_credits_limit {
+    if cfg.show && cfg.show_limit {
         rows.push(label_item(money_line(
             "Limit",
             state.credits_limit.as_ref(),
             stale,
         )));
     }
-    if display.show_credits_total {
+    if cfg.show && cfg.show_total {
         rows.push(label_item(money_line(
             "Total credits",
             state.credits_total.as_ref(),
@@ -210,12 +215,17 @@ fn usage_line(label: &str, pct: Option<f64>, reset: Option<SystemTime>, stale: b
 }
 
 fn usage_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<UsageTray>> {
+    let cfg = &display.usage;
+    if !cfg.show || (!cfg.show_five_hour && !cfg.show_weekly) {
+        return Vec::new();
+    }
+
     match &state.status {
         UsageStatus::Loading => vec![label_item("Loading...".into())],
         UsageStatus::NeedsLogin => vec![label_item(NEEDS_LOGIN_MSG.into())],
         UsageStatus::Error(e) => {
             let mut rows = Vec::new();
-            if display.show_five_hour_usage && state.five_hour_usage.is_some() {
+            if cfg.show_five_hour && state.five_hour_usage.is_some() {
                 rows.push(label_item(usage_line(
                     "5-hour",
                     state.five_hour_usage,
@@ -223,7 +233,7 @@ fn usage_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<Usage
                     true,
                 )));
             }
-            if display.show_weekly_usage && state.weekly_usage.is_some() {
+            if cfg.show_weekly && state.weekly_usage.is_some() {
                 rows.push(label_item(usage_line(
                     "Weekly",
                     state.weekly_usage,
@@ -238,7 +248,7 @@ fn usage_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<Usage
         }
         UsageStatus::Ok => {
             let mut rows = Vec::new();
-            if display.show_five_hour_usage {
+            if cfg.show_five_hour {
                 rows.push(label_item(usage_line(
                     "5-hour",
                     state.five_hour_usage,
@@ -246,16 +256,13 @@ fn usage_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<Usage
                     false,
                 )));
             }
-            if display.show_weekly_usage {
+            if cfg.show_weekly {
                 rows.push(label_item(usage_line(
                     "Weekly",
                     state.weekly_usage,
                     state.weekly_resets_at,
                     false,
                 )));
-            }
-            if rows.is_empty() {
-                rows.push(label_item("No usage metrics enabled".into()));
             }
             rows
         }

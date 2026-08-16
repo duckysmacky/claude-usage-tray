@@ -41,28 +41,66 @@ impl Default for Config {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub struct DisplayConfig {
-    pub show_five_hour_usage: bool,
-    pub show_weekly_usage: bool,
-    pub show_plan: bool,
-    pub show_account: bool,
-    pub show_credits_spent: bool,
-    pub show_credits_limit: bool,
-    pub show_credits_total: bool,
+    pub account: AccountDisplay,
+    pub usage: UsageDisplay,
+    pub credits: CreditsDisplay,
 }
 
-impl Default for DisplayConfig {
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct AccountDisplay {
+    pub show: bool,
+    pub show_plan: bool,
+    pub show_email: bool,
+}
+
+impl Default for AccountDisplay {
     fn default() -> Self {
         Self {
-            show_five_hour_usage: true,
-            show_weekly_usage: true,
+            show: true,
             show_plan: true,
-            show_account: true,
-            show_credits_spent: true,
-            show_credits_limit: true,
-            show_credits_total: true,
+            show_email: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct UsageDisplay {
+    pub show: bool,
+    pub show_five_hour: bool,
+    pub show_weekly: bool,
+}
+
+impl Default for UsageDisplay {
+    fn default() -> Self {
+        Self {
+            show: true,
+            show_five_hour: true,
+            show_weekly: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct CreditsDisplay {
+    pub show: bool,
+    pub show_spent: bool,
+    pub show_limit: bool,
+    pub show_total: bool,
+}
+
+impl Default for CreditsDisplay {
+    fn default() -> Self {
+        Self {
+            show: false,
+            show_spent: true,
+            show_limit: true,
+            show_total: true,
         }
     }
 }
