@@ -58,13 +58,18 @@ impl ksni::Tray for UsageTray {
     fn tool_tip(&self) -> ToolTip {
         ToolTip {
             title: "Claude Usage".into(),
-            description: describe(&self.state),
             ..Default::default()
         }
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
-        vec![
+        let mut items = vec![
+            header_item(&self.state.status),
+            MenuItem::Separator
+        ];
+        items.extend(usage_rows(&self.state));
+        items.push(MenuItem::Separator);
+        items.push(
             StandardItem {
                 label: "Quit".into(),
                 activate: Box::new(|tray: &mut UsageTray| {
@@ -73,7 +78,8 @@ impl ksni::Tray for UsageTray {
                 ..Default::default()
             }
             .into(),
-        ]
+        );
+        items
     }
 }
 
@@ -86,37 +92,65 @@ fn icon_for(status: &UsageStatus) -> &'static str {
     }
 }
 
-fn describe(state: &UsageState) -> String {
+fn header_item(status: &UsageStatus) -> MenuItem<UsageTray> {
+    StandardItem {
+        label: "Claude Usage".into(),
+        icon_name: icon_for(status).into(),
+        enabled: false,
+        activate: Box::new(|_| {}),
+        ..Default::default()
+    }
+    .into()
+}
+
+fn label_item(label: String) -> MenuItem<UsageTray> {
+    StandardItem {
+        label,
+        enabled: false,
+        activate: Box::new(|_| {}),
+        ..Default::default()
+    }
+    .into()
+}
+
+fn usage_rows(state: &UsageState) -> Vec<MenuItem<UsageTray>> {
     match &state.status {
-        UsageStatus::Loading => "Loading...".into(),
-        UsageStatus::NeedsLogin => "Not logged in - run `claude auth` to authenticate".into(),
-        UsageStatus::Error(e) => format!("Error: {}", escape(e)),
+        UsageStatus::Loading => vec![
+            label_item("Loading...".into())
+        ],
+        UsageStatus::NeedsLogin => vec![
+            label_item("Not logged in - run `claude auth` to authenticate".into())
+        ],
+        UsageStatus::Error(e) => vec![
+            label_item(format!("Error: {}", escape(e)))
+        ],
         UsageStatus::Ok => {
-            let mut lines = Vec::new();
+            let five_hour = state
+                .five_hour_usage
+                .map(|pct| {
+                    let reset = state
+                        .five_hour_resets_at
+                        .map(fmt_reset)
+                        .unwrap_or_else(|| "unknown".into());
+                    format!("5-hour: {:.0}% · resets {}", pct, reset)
+                })
+                .unwrap_or_else(|| "5-hour: no data".into());
 
-            if let Some(pct) = state.five_hour_usage {
-                let reset = state
-                    .five_hour_resets_at
-                    .map(fmt_reset)
-                    .unwrap_or_else(|| "unknown".into());
+            let weekly = state
+                .weekly_usage
+                .map(|pct| {
+                    let reset = state
+                        .weekly_resets_at
+                        .map(fmt_reset)
+                        .unwrap_or_else(|| "unknown".into());
+                    format!("Weekly: {:.0}% · resets {}", pct, reset)
+                })
+                .unwrap_or_else(|| "Weekly: no data".into());
 
-                lines.push(format!("5-hour: {:.0}% · resets {}", pct, reset));
-            }
-
-            if let Some(pct) = state.weekly_usage {
-                let reset = state
-                    .weekly_resets_at
-                    .map(fmt_reset)
-                    .unwrap_or_else(|| "unknown".into());
-
-                lines.push(format!("Weekly: {:.0}% · resets {}", pct, reset));
-            }
-
-            if lines.is_empty() {
-                "No usage data".into()
-            } else {
-                lines.join("\n")
-            }
+            vec![
+                label_item(five_hour),
+                label_item(weekly)
+            ]
         }
     }
 }
