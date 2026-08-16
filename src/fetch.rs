@@ -8,6 +8,7 @@ use time::format_description::well_known::Rfc3339;
 use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::time::sleep;
+use tracing::{debug, info, warn};
 
 use crate::state::{UsageState, UsageStatus};
 
@@ -56,14 +57,31 @@ fn credentials_path() -> PathBuf {
 }
 
 fn load_credentials() -> Option<OauthCredentials> {
-    let bytes = std::fs::read(credentials_path()).ok()?;
-    let file: CredentialsFile = serde_json::from_slice(&bytes).ok()?;
+    let path = credentials_path();
+
+    let bytes = match std::fs::read(&path) {
+        Ok(b) => b,
+        Err(e) => {
+            debug!(path = %path.display(), error = %e, "credentials file not readable");
+            return None;
+        }
+    };
+
+    let file: CredentialsFile = match serde_json::from_slice(&bytes) {
+        Ok(f) => f,
+        Err(e) => {
+            warn!(error = %e, "credentials file present but failed to parse");
+            return None;
+        }
+    };
+
     let now_millis = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .ok()?
         .as_millis() as i64;
 
     if file.oauth.expires_at <= now_millis {
+        debug!("credentials expired");
         return None;
     }
 
@@ -84,7 +102,19 @@ async fn detect_claude_version() -> String {
             .map(str::to_owned)
     });
 
-    version.unwrap_or_else(|| FALLBACK_CLAUDE_VERSION.into())
+    match version {
+        Some(v) => {
+            info!(version = %v, "detected installed claude code version");
+            v
+        }
+        None => {
+            warn!(
+                fallback = FALLBACK_CLAUDE_VERSION,
+                "could not detect claude code version, using fallback"
+            );
+            FALLBACK_CLAUDE_VERSION.into()
+        }
+    }
 }
 
 async fn poll_once(client: &reqwest::Client, user_agent: &str) -> Outcome {
@@ -103,19 +133,27 @@ async fn poll_once(client: &reqwest::Client, user_agent: &str) -> Outcome {
 
     let response = match response {
         Ok(r) => r,
-        Err(e) => return Outcome::Transient(e.to_string()),
+        Err(e) => {
+            warn!(error = %e, "usage request failed");
+            return Outcome::Transient(e.to_string());
+        }
     };
 
     if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+        info!("access token rejected (401), needs login");
         return Outcome::NeedsLogin;
     }
     if !response.status().is_success() {
+        warn!(status = %response.status(), "usage endpoint returned non-success status");
         return Outcome::Transient(format!("HTTP {}", response.status()));
     }
 
     match response.json::<UsageResponse>().await {
         Ok(usage) => Outcome::Ok(usage),
-        Err(e) => Outcome::Transient(e.to_string()),
+        Err(e) => {
+            warn!(error = %e, "failed to parse usage response");
+            Outcome::Transient(e.to_string())
+        }
     }
 }
 
@@ -142,14 +180,17 @@ pub async fn run(tx: watch::Sender<UsageState>) {
         let next_state = match outcome {
             Outcome::Ok(usage) => {
                 delay = POLL_INTERVAL;
+                let five_hour = usage.five_hour.as_ref().and_then(|w| w.utilization);
+                let weekly = usage.seven_day.as_ref().and_then(|w| w.utilization);
+                debug!(five_hour = ?five_hour, weekly = ?weekly, "usage updated");
                 UsageState {
-                    five_hour_usage: usage.five_hour.as_ref().and_then(|w| w.utilization),
+                    five_hour_usage: five_hour,
                     five_hour_resets_at: usage
                         .five_hour
                         .as_ref()
                         .and_then(|w| w.resets_at.as_deref())
                         .and_then(parse_reset),
-                    weekly_usage: usage.seven_day.as_ref().and_then(|w| w.utilization),
+                    weekly_usage: weekly,
                     weekly_resets_at: usage
                         .seven_day
                         .as_ref()
@@ -160,6 +201,11 @@ pub async fn run(tx: watch::Sender<UsageState>) {
             }
             Outcome::Transient(msg) => {
                 delay = (delay * 2).min(MAX_POLL_INTERVAL);
+                warn!(
+                    error = %msg,
+                    next_retry_secs = delay.as_secs(),
+                    "transient error polling usage, backing off"
+                );
                 let mut state = tx.borrow().clone();
                 state.status = UsageStatus::Error(msg);
                 state
@@ -174,6 +220,7 @@ pub async fn run(tx: watch::Sender<UsageState>) {
         };
 
         if tx.send(next_state).is_err() {
+            debug!("state receiver dropped, stopping fetch loop");
             return;
         }
 
