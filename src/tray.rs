@@ -5,7 +5,7 @@ use ksni::{Category, MenuItem, Status, ToolTip};
 use tokio::sync::mpsc;
 
 use crate::config::DisplayConfig;
-use crate::state::{UsageState, UsageStatus};
+use crate::state::{Money, UsageState, UsageStatus};
 
 const NEEDS_LOGIN_MSG: &str = "Not logged in - run `claude auth` to authenticate";
 
@@ -84,6 +84,13 @@ impl ksni::Tray for UsageTray {
 
         items.extend(usage_rows(&self.state, &self.display));
         items.push(MenuItem::Separator);
+
+        let credits = credits_rows(&self.state, &self.display);
+        if !credits.is_empty() {
+            items.extend(credits);
+            items.push(MenuItem::Separator);
+        }
+
         items.push(
             StandardItem {
                 label: "Quit".into(),
@@ -150,6 +157,43 @@ fn account_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<Usa
         rows.push(label_item(
             state.account_email.clone().unwrap_or_else(|| "—".into()),
         ));
+    }
+    rows
+}
+
+fn money_line(label: &str, money: Option<&Money>, stale: bool) -> String {
+    match money {
+        Some(m) => {
+            let suffix = if stale { " (last known)" } else { "" };
+            format!("{}: {:.2} {}{}", label, m.amount, m.currency, suffix)
+        }
+        None => format!("{}: —", label),
+    }
+}
+
+fn credits_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<UsageTray>> {
+    let stale = matches!(state.status, UsageStatus::Error(_));
+    let mut rows = Vec::new();
+    if display.show_credits_spent {
+        rows.push(label_item(money_line(
+            "Spent",
+            state.credits_spent.as_ref(),
+            stale,
+        )));
+    }
+    if display.show_credits_limit {
+        rows.push(label_item(money_line(
+            "Limit",
+            state.credits_limit.as_ref(),
+            stale,
+        )));
+    }
+    if display.show_credits_total {
+        rows.push(label_item(money_line(
+            "Total credits",
+            state.credits_total.as_ref(),
+            stale,
+        )));
     }
     rows
 }

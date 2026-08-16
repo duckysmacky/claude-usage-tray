@@ -10,7 +10,7 @@ use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
 use crate::config::Config;
-use crate::state::{UsageState, UsageStatus};
+use crate::state::{Money, UsageState, UsageStatus};
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const OAUTH_BETA: &str = "oauth-2025-04-20";
@@ -47,6 +47,7 @@ struct OauthAccount {
 struct UsageResponse {
     five_hour: Option<Window>,
     seven_day: Option<Window>,
+    spend: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]
@@ -214,6 +215,34 @@ fn parse_reset(s: &str) -> Option<SystemTime> {
         .map(SystemTime::from)
 }
 
+fn extract_money(v: &serde_json::Value) -> Option<Money> {
+    let amount_minor = v.get("amount_minor")?.as_i64()?;
+    let exponent = v.get("exponent")?.as_u64()? as i32;
+    let currency = v.get("currency")?.as_str()?.to_string();
+    Some(Money {
+        amount: amount_minor as f64 / 10f64.powi(exponent),
+        currency,
+    })
+}
+
+fn extract_spend_field(spend: &serde_json::Value, key: &str) -> Option<Money> {
+    let field = spend.get(key)?;
+    if field.is_null() {
+        debug!(field = key, "spend field is null");
+        return None;
+    }
+    match extract_money(field) {
+        Some(money) => Some(money),
+        None => {
+            debug!(
+                field = key,
+                "spend field present but not in expected money shape"
+            );
+            None
+        }
+    }
+}
+
 pub async fn run(tx: watch::Sender<UsageState>, config: Config) {
     let client = reqwest::Client::builder()
         .timeout(config.request_timeout())
@@ -243,7 +272,28 @@ pub async fn run(tx: watch::Sender<UsageState>, config: Config) {
                 delay = base_interval;
                 let five_hour = usage.five_hour.as_ref().and_then(|w| w.utilization);
                 let weekly = usage.seven_day.as_ref().and_then(|w| w.utilization);
-                debug!(five_hour = ?five_hour, weekly = ?weekly, plan = ?plan, email = ?email, "usage updated");
+                let credits_spent = usage
+                    .spend
+                    .as_ref()
+                    .and_then(|s| extract_spend_field(s, "used"));
+                let credits_limit = usage
+                    .spend
+                    .as_ref()
+                    .and_then(|s| extract_spend_field(s, "limit"));
+                let credits_total = usage
+                    .spend
+                    .as_ref()
+                    .and_then(|s| extract_spend_field(s, "balance"));
+                debug!(
+                    five_hour = ?five_hour,
+                    weekly = ?weekly,
+                    plan = ?plan,
+                    email = ?email,
+                    credits_spent = ?credits_spent,
+                    credits_limit = ?credits_limit,
+                    credits_total = ?credits_total,
+                    "usage updated"
+                );
                 UsageState {
                     five_hour_usage: five_hour,
                     five_hour_resets_at: usage
@@ -259,6 +309,9 @@ pub async fn run(tx: watch::Sender<UsageState>, config: Config) {
                         .and_then(parse_reset),
                     plan,
                     account_email: email,
+                    credits_spent,
+                    credits_limit,
+                    credits_total,
                     status: UsageStatus::Ok,
                 }
             }

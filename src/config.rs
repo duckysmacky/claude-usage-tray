@@ -48,6 +48,9 @@ pub struct DisplayConfig {
     pub show_weekly_usage: bool,
     pub show_plan: bool,
     pub show_account: bool,
+    pub show_credits_spent: bool,
+    pub show_credits_limit: bool,
+    pub show_credits_total: bool,
 }
 
 impl Default for DisplayConfig {
@@ -57,6 +60,9 @@ impl Default for DisplayConfig {
             show_weekly_usage: true,
             show_plan: true,
             show_account: true,
+            show_credits_spent: true,
+            show_credits_limit: true,
+            show_credits_total: true,
         }
     }
 }
