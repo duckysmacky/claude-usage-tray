@@ -2,5 +2,9 @@
 name = "claude-usage-tray"
 version = "0.1.0"
 edition = "2024"
+description = "System tray app showing Claude.ai usage limits via StatusNotifierItem"
+license = "MIT"
 
 [dependencies]
+ksni = "0.3.6"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
