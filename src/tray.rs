@@ -4,6 +4,7 @@ use ksni::menu::StandardItem;
 use ksni::{Category, MenuItem, Status, ToolTip};
 use tokio::sync::mpsc;
 
+use crate::config::DisplayConfig;
 use crate::state::{UsageState, UsageStatus};
 
 const NEEDS_LOGIN_MSG: &str = "Not logged in - run `claude auth` to authenticate";
@@ -11,13 +12,15 @@ const NEEDS_LOGIN_MSG: &str = "Not logged in - run `claude auth` to authenticate
 pub struct UsageTray {
     state: UsageState,
     quit_tx: mpsc::UnboundedSender<()>,
+    display: DisplayConfig,
 }
 
 impl UsageTray {
-    pub fn new(quit_tx: mpsc::UnboundedSender<()>) -> Self {
+    pub fn new(quit_tx: mpsc::UnboundedSender<()>, display: DisplayConfig) -> Self {
         Self {
             state: UsageState::default(),
             quit_tx,
+            display,
         }
     }
 
@@ -71,11 +74,8 @@ impl ksni::Tray for UsageTray {
     }
 
     fn menu(&self) -> Vec<MenuItem<Self>> {
-        let mut items = vec![
-            header_item(&self.state.status),
-            MenuItem::Separator
-        ];
-        items.extend(usage_rows(&self.state));
+        let mut items = vec![header_item(&self.state.status), MenuItem::Separator];
+        items.extend(usage_rows(&self.state, &self.display));
         items.push(MenuItem::Separator);
         items.push(
             StandardItem {
@@ -132,50 +132,56 @@ fn usage_line(label: &str, pct: Option<f64>, reset: Option<SystemTime>, stale: b
     }
 }
 
-fn usage_rows(state: &UsageState) -> Vec<MenuItem<UsageTray>> {
+fn usage_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<UsageTray>> {
     match &state.status {
-        UsageStatus::Loading => vec![
-            label_item("Loading...".into())
-        ],
-        UsageStatus::NeedsLogin => vec![
-            label_item(NEEDS_LOGIN_MSG.into())
-        ],
+        UsageStatus::Loading => vec![label_item("Loading...".into())],
+        UsageStatus::NeedsLogin => vec![label_item(NEEDS_LOGIN_MSG.into())],
         UsageStatus::Error(e) => {
-            if state.five_hour_usage.is_some() || state.weekly_usage.is_some() {
-                vec![
-                    label_item(usage_line(
-                        "5-hour",
-                        state.five_hour_usage,
-                        state.five_hour_resets_at,
-                        true,
-                    )),
-                    label_item(usage_line(
-                        "Weekly",
-                        state.weekly_usage,
-                        state.weekly_resets_at,
-                        true,
-                    )),
-                ]
-            } else {
-                vec![
-                    label_item(format!("Error: {}", escape(e)))
-                ]
+            let mut rows = Vec::new();
+            if display.show_five_hour_usage && state.five_hour_usage.is_some() {
+                rows.push(label_item(usage_line(
+                    "5-hour",
+                    state.five_hour_usage,
+                    state.five_hour_resets_at,
+                    true,
+                )));
             }
+            if display.show_weekly_usage && state.weekly_usage.is_some() {
+                rows.push(label_item(usage_line(
+                    "Weekly",
+                    state.weekly_usage,
+                    state.weekly_resets_at,
+                    true,
+                )));
+            }
+            if rows.is_empty() {
+                rows.push(label_item(format!("Error: {}", escape(e))));
+            }
+            rows
         }
-        UsageStatus::Ok => vec![
-            label_item(usage_line(
-                "5-hour",
-                state.five_hour_usage,
-                state.five_hour_resets_at,
-                false,
-            )),
-            label_item(usage_line(
-                "Weekly",
-                state.weekly_usage,
-                state.weekly_resets_at,
-                false,
-            )),
-        ],
+        UsageStatus::Ok => {
+            let mut rows = Vec::new();
+            if display.show_five_hour_usage {
+                rows.push(label_item(usage_line(
+                    "5-hour",
+                    state.five_hour_usage,
+                    state.five_hour_resets_at,
+                    false,
+                )));
+            }
+            if display.show_weekly_usage {
+                rows.push(label_item(usage_line(
+                    "Weekly",
+                    state.weekly_usage,
+                    state.weekly_resets_at,
+                    false,
+                )));
+            }
+            if rows.is_empty() {
+                rows.push(label_item("No usage metrics enabled".into()));
+            }
+            rows
+        }
     }
 }
 

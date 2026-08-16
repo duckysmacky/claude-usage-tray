@@ -1,3 +1,4 @@
+mod config;
 mod fetch;
 mod state;
 mod tray;
@@ -13,10 +14,15 @@ use tray::UsageTray;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing();
 
+    let config = config::load();
+
     let (state_tx, state_rx) = watch::channel(UsageState::default());
     let (quit_tx, mut quit_rx) = mpsc::unbounded_channel();
 
-    let handle = match UsageTray::new(quit_tx).spawn().await {
+    let handle = match UsageTray::new(quit_tx, config.display.clone())
+        .spawn()
+        .await
+    {
         Ok(handle) => handle,
         Err(e) => {
             error!(error = %e, "failed to spawn tray (no StatusNotifierItem host running?)");
@@ -25,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     info!("tray spawned");
 
-    let fetch_task = tokio::spawn(fetch::run(state_tx));
+    let fetch_task = tokio::spawn(fetch::run(state_tx, config.clone()));
     let bridge_task = tokio::spawn(bridge(state_rx, handle.clone()));
 
     tokio::select! {

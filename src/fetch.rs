@@ -1,6 +1,5 @@
-use std::env;
-use std::path::PathBuf;
-use std::time::{Duration, SystemTime};
+use std::path::Path;
+use std::time::SystemTime;
 
 use serde::Deserialize;
 use time::OffsetDateTime;
@@ -10,14 +9,11 @@ use tokio::sync::watch;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
+use crate::config::Config;
 use crate::state::{UsageState, UsageStatus};
 
 const USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 const OAUTH_BETA: &str = "oauth-2025-04-20";
-const FALLBACK_CLAUDE_VERSION: &str = "2.1.228";
-const POLL_INTERVAL: Duration = Duration::from_secs(90);
-const MAX_POLL_INTERVAL: Duration = Duration::from_secs(600);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Deserialize)]
 struct CredentialsFile {
@@ -51,15 +47,8 @@ enum Outcome {
     Transient(String),
 }
 
-fn credentials_path() -> PathBuf {
-    let home = env::var("HOME").expect("HOME must be set");
-    PathBuf::from(home).join(".claude/.credentials.json")
-}
-
-fn load_credentials() -> Option<OauthCredentials> {
-    let path = credentials_path();
-
-    let bytes = match std::fs::read(&path) {
+fn load_credentials(path: &Path) -> Option<OauthCredentials> {
+    let bytes = match std::fs::read(path) {
         Ok(b) => b,
         Err(e) => {
             debug!(path = %path.display(), error = %e, "credentials file not readable");
@@ -88,7 +77,7 @@ fn load_credentials() -> Option<OauthCredentials> {
     Some(file.oauth)
 }
 
-async fn detect_claude_version() -> String {
+async fn detect_claude_version(fallback: &str) -> String {
     let output = Command::new("claude").arg("--version").output().await;
     let version = output.ok().and_then(|o| {
         if !o.status.success() {
@@ -109,16 +98,16 @@ async fn detect_claude_version() -> String {
         }
         None => {
             warn!(
-                fallback = FALLBACK_CLAUDE_VERSION,
+                fallback,
                 "could not detect claude code version, using fallback"
             );
-            FALLBACK_CLAUDE_VERSION.into()
+            fallback.into()
         }
     }
 }
 
-async fn poll_once(client: &reqwest::Client, user_agent: &str) -> Outcome {
-    let Some(creds) = load_credentials() else {
+async fn poll_once(client: &reqwest::Client, user_agent: &str, credentials_path: &Path) -> Outcome {
+    let Some(creds) = load_credentials(credentials_path) else {
         return Outcome::NeedsLogin;
     };
 
@@ -163,23 +152,26 @@ fn parse_reset(s: &str) -> Option<SystemTime> {
         .map(SystemTime::from)
 }
 
-pub async fn run(tx: watch::Sender<UsageState>) {
+pub async fn run(tx: watch::Sender<UsageState>, config: Config) {
     let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
+        .timeout(config.request_timeout())
         .build()
         .expect("failed to build HTTP client");
 
-    let version = detect_claude_version().await;
+    let version = detect_claude_version(&config.claude_fallback_version).await;
     let user_agent = format!("claude-code/{}", version);
+    let credentials_path = config.credentials_path();
+    let base_interval = config.poll_interval();
+    let max_interval = config.max_poll_interval();
 
-    let mut delay = POLL_INTERVAL;
+    let mut delay = base_interval;
 
     loop {
-        let outcome = poll_once(&client, &user_agent).await;
+        let outcome = poll_once(&client, &user_agent, &credentials_path).await;
 
         let next_state = match outcome {
             Outcome::Ok(usage) => {
-                delay = POLL_INTERVAL;
+                delay = base_interval;
                 let five_hour = usage.five_hour.as_ref().and_then(|w| w.utilization);
                 let weekly = usage.seven_day.as_ref().and_then(|w| w.utilization);
                 debug!(five_hour = ?five_hour, weekly = ?weekly, "usage updated");
@@ -200,7 +192,7 @@ pub async fn run(tx: watch::Sender<UsageState>) {
                 }
             }
             Outcome::Transient(msg) => {
-                delay = (delay * 2).min(MAX_POLL_INTERVAL);
+                delay = (delay * 2).min(max_interval);
                 warn!(
                     error = %msg,
                     next_retry_secs = delay.as_secs(),
@@ -211,7 +203,7 @@ pub async fn run(tx: watch::Sender<UsageState>) {
                 state
             }
             Outcome::NeedsLogin => {
-                delay = POLL_INTERVAL;
+                delay = base_interval;
                 UsageState {
                     status: UsageStatus::NeedsLogin,
                     ..Default::default()
