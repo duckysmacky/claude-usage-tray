@@ -1,5 +1,6 @@
 mod config;
 mod fetch;
+mod icons;
 mod state;
 mod tray;
 

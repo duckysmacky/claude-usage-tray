@@ -6,6 +6,7 @@ description = "System tray app showing Claude.ai usage limits via StatusNotifier
 license = "MIT"
 
 [dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
 ksni = "0.3.6"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "signal", "process"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

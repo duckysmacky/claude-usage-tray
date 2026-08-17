@@ -5,6 +5,7 @@ use ksni::{Category, MenuItem, Status, ToolTip};
 use tokio::sync::mpsc;
 
 use crate::config::DisplayConfig;
+use crate::icons;
 use crate::state::{Money, UsageState, UsageStatus};
 
 const NEEDS_LOGIN_MSG: &str = "Not logged in - run `claude auth` to authenticate";
@@ -53,11 +54,19 @@ impl ksni::Tray for UsageTray {
     }
 
     fn icon_name(&self) -> String {
-        icon_for(&self.state.status).into()
+        icons::icon_name(&self.state.status).into()
+    }
+
+    fn icon_pixmap(&self) -> Vec<ksni::Icon> {
+        icons::pixmap(&self.state.status)
     }
 
     fn attention_icon_name(&self) -> String {
-        icon_for(&self.state.status).into()
+        icons::icon_name(&self.state.status).into()
+    }
+
+    fn attention_icon_pixmap(&self) -> Vec<ksni::Icon> {
+        icons::pixmap(&self.state.status)
     }
 
     fn tool_tip(&self) -> ToolTip {
@@ -108,19 +117,11 @@ impl ksni::Tray for UsageTray {
     }
 }
 
-fn icon_for(status: &UsageStatus) -> &'static str {
-    match status {
-        UsageStatus::Loading => "image-loading",
-        UsageStatus::Ok => "utilities-system-monitor",
-        UsageStatus::NeedsLogin => "dialog-password",
-        UsageStatus::Error(_) => "dialog-error",
-    }
-}
-
 fn header_item(status: &UsageStatus) -> MenuItem<UsageTray> {
     StandardItem {
         label: "Claude Usage".into(),
-        icon_name: icon_for(status).into(),
+        icon_name: icons::icon_name(status).into(),
+        icon_data: icons::png(status),
         enabled: false,
         activate: Box::new(|_| {}),
         ..Default::default()
