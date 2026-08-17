@@ -1,5 +1,3 @@
-use std::fs;
-use std::path::Path;
 use std::sync::LazyLock;
 
 use image::GenericImageView;
@@ -12,10 +10,14 @@ struct IconAsset {
     pixmap: ksni::Icon,
 }
 
-static LOADING: LazyLock<Option<IconAsset>> = LazyLock::new(|| load("loading.png"));
-static DEFAULT: LazyLock<Option<IconAsset>> = LazyLock::new(|| load("default.png"));
-static LOGIN: LazyLock<Option<IconAsset>> = LazyLock::new(|| load("login.png"));
-static ERROR: LazyLock<Option<IconAsset>> = LazyLock::new(|| load("error.png"));
+static LOADING: LazyLock<Option<IconAsset>> =
+    LazyLock::new(|| load(include_bytes!("../assets/loading-icon.png")));
+static DEFAULT: LazyLock<Option<IconAsset>> =
+    LazyLock::new(|| load(include_bytes!("../assets/default-icon.png")));
+static LOGIN: LazyLock<Option<IconAsset>> =
+    LazyLock::new(|| load(include_bytes!("../assets/login-icon.png")));
+static ERROR: LazyLock<Option<IconAsset>> =
+    LazyLock::new(|| load(include_bytes!("../assets/error-icon.png")));
 
 fn asset(status: &UsageStatus) -> Option<&'static IconAsset> {
     match status {
@@ -57,23 +59,11 @@ pub fn png(status: &UsageStatus) -> Vec<u8> {
         .unwrap_or_default()
 }
 
-fn load(filename: &str) -> Option<IconAsset> {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("assets")
-        .join(filename);
-
-    let png = match fs::read(&path) {
-        Ok(png) => png,
-        Err(error) => {
-            warn!(path = %path.display(), %error, "custom icon unavailable; using theme icon");
-            return None;
-        }
-    };
-
-    let image = match image::load_from_memory_with_format(&png, image::ImageFormat::Png) {
+fn load(png: &'static [u8]) -> Option<IconAsset> {
+    let image = match image::load_from_memory_with_format(png, image::ImageFormat::Png) {
         Ok(image) => image,
         Err(error) => {
-            warn!(path = %path.display(), %error, "invalid custom icon; using theme icon");
+            warn!(%error, "invalid custom icon; using theme icon");
             return None;
         }
     };
@@ -87,7 +77,7 @@ fn load(filename: &str) -> Option<IconAsset> {
     }
 
     Some(IconAsset {
-        png,
+        png: png.to_vec(),
         pixmap: ksni::Icon {
             width: width as i32,
             height: height as i32,
