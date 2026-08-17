@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Claude Usage Tray
+Comment=Shows Claude usage limits in the system tray
+Exec=systemctl --user restart claude-usage-tray.service
+Icon=claude-usage-tray
+Terminal=false
+NoDisplay=false

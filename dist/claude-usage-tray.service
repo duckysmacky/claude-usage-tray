@@ -1,0 +1,12 @@
+[Unit]
+Description=Claude usage tray
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+ExecStart=%h/.cargo/bin/claude-usage-tray
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

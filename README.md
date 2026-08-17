@@ -28,7 +28,40 @@ The configuration file is located at `~/.config/claude-usage-tray/config.toml`. 
 
 But most importantly it allows to toggle each display element individually or the whole group of elements. **By default usage credits are hidden** - enable them by setting `display.credits.show = true`.
 
-## Install
+## Installation
 
-Installation details coming soon
+### Using `cargo`
+
+1. Install:
+
+```sh
+cargo install claude-usage-tray
+claude-usage-tray install # to install .service and .desktop files
+```
+
+2. Enable autostart:
+
+```sh
+systemctl --user enable --now claude-usage-tray.service
+```
+
+or if you'd rather autostart via your desktop environment:
+
+```sh
+ln -s ~/.local/share/applications/claude-usage-tray.desktop ~/.config/autostart/claude-usage-tray.desktop
+```
+
+> [!NOTE]
+> The unit binds to `graphical-session.target`, which most modern desktop
+> environments (GNOME, KDE, XFCE with systemd session support) reach
+> automatically at login. If your DE/WM doesn't start that target (some
+> minimal window managers), autostart via `~/.config/autostart/` as
+> described above instead.
+
+In case you want to uninstall:
+
+```sh
+claude-usage-tray uninstall
+cargo uninstall claude-usage-tray
+```
 

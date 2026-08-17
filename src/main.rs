@@ -1,6 +1,7 @@
 mod config;
 mod fetch;
 mod icons;
+mod install;
 mod state;
 mod tray;
 
@@ -13,6 +14,12 @@ use tray::UsageTray;
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    match std::env::args().nth(1).as_deref() {
+        Some("install") => return install::install(),
+        Some("uninstall") => return install::uninstall(),
+        _ => {}
+    }
+
     init_tracing();
 
     let config = config::load();
