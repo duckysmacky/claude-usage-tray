@@ -2,8 +2,13 @@
 name = "claude-usage-tray"
 version = "0.1.0"
 edition = "2024"
-description = "System tray app showing Claude.ai usage limits via StatusNotifierItem"
+description = "A simple tray application for Linux to show Claude's usage"
 license = "MIT"
+readme = "README.md"
+repository = "https://github.com/duckysmacky/claude-usage-tray"
+keywords = ["claude", "tray", "system-tray", "linux", "status-notifier-item"]
+categories = ["command-line-utilities"]
+exclude = ["assets/screenshot.png"]
 
 [dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }
