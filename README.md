@@ -52,11 +52,9 @@ ln -s ~/.local/share/applications/claude-usage-tray.desktop ~/.config/autostart/
 ```
 
 > [!NOTE]
-> The unit binds to `graphical-session.target`, which most modern desktop
-> environments (GNOME, KDE, XFCE with systemd session support) reach
-> automatically at login. If your DE/WM doesn't start that target (some
-> minimal window managers), autostart via `~/.config/autostart/` as
-> described above instead.
+> The unit is enabled under the user manager's `default.target`, so it also
+> starts in desktop and window-manager sessions that do not activate
+> `graphical-session.target`.
 
 In case you want to uninstall:
 
@@ -64,4 +62,3 @@ In case you want to uninstall:
 claude-usage-tray uninstall
 cargo uninstall claude-usage-tray
 ```
-
