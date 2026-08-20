@@ -1,6 +1,6 @@
 [package]
 name = "claude-usage-tray"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2024"
 description = "A simple tray application for Linux to show Claude's usage"
 license = "MIT"
