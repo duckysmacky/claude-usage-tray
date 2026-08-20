@@ -122,8 +122,6 @@ fn header_item(status: &UsageStatus) -> MenuItem<UsageTray> {
         label: "Claude Usage".into(),
         icon_name: icons::icon_name(status).into(),
         icon_data: icons::png(status),
-        enabled: false,
-        activate: Box::new(|_| {}),
         ..Default::default()
     }
     .into()
@@ -139,7 +137,7 @@ fn label_item(label: String) -> MenuItem<UsageTray> {
     .into()
 }
 
-fn prominent_item(label: String) -> MenuItem<UsageTray> {
+fn normal_item(label: String) -> MenuItem<UsageTray> {
     StandardItem {
         label,
         ..Default::default()
@@ -197,21 +195,21 @@ fn credits_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<Usa
     let stale = matches!(state.status, UsageStatus::Error(_));
     let mut rows = Vec::new();
     if cfg.show && cfg.show_spent {
-        rows.push(label_item(money_line(
+        rows.push(normal_item(money_line(
             "Spent",
             state.credits_spent.as_ref(),
             stale,
         )));
     }
     if cfg.show && cfg.show_limit {
-        rows.push(label_item(money_line(
+        rows.push(normal_item(money_line(
             "Limit",
             state.credits_limit.as_ref(),
             stale,
         )));
     }
     if cfg.show && cfg.show_total {
-        rows.push(label_item(money_line(
+        rows.push(normal_item(money_line(
             "Total credits",
             state.credits_total.as_ref(),
             stale,
@@ -267,7 +265,7 @@ fn usage_items(
         .enumerate()
         .map(|(index, line)| {
             if prominent_first_row && index == 0 {
-                prominent_item(line)
+                normal_item(line)
             } else {
                 label_item(line)
             }
@@ -415,6 +413,25 @@ mod tests {
         };
 
         assert!(usage.enabled);
+    }
+
+    #[test]
+    fn makes_the_title_and_credits_normal_items() {
+        let MenuItem::Standard(title) = header_item(&UsageStatus::Ok) else {
+            panic!("title should be a standard item");
+        };
+
+        let mut display = DisplayConfig::default();
+        display.credits.show = true;
+        let credits = credits_rows(&UsageState::default(), &display);
+
+        assert!(title.enabled);
+        assert_eq!(credits.len(), 3);
+        assert!(
+            credits
+                .iter()
+                .all(|item| { matches!(item, MenuItem::Standard(credit) if credit.enabled) })
+        );
     }
 
     #[test]
