@@ -4,7 +4,7 @@ use ksni::menu::StandardItem;
 use ksni::{Category, MenuItem, Status, ToolTip};
 use tokio::sync::mpsc;
 
-use crate::config::DisplayConfig;
+use crate::config::{DisplayConfig, UsageViewMode};
 use crate::icons;
 use crate::state::{Money, UsageState, UsageStatus};
 
@@ -139,6 +139,14 @@ fn label_item(label: String) -> MenuItem<UsageTray> {
     .into()
 }
 
+fn prominent_item(label: String) -> MenuItem<UsageTray> {
+    StandardItem {
+        label,
+        ..Default::default()
+    }
+    .into()
+}
+
 fn capitalize(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
@@ -212,15 +220,59 @@ fn credits_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<Usa
     rows
 }
 
-fn usage_line(label: &str, pct: Option<f64>, reset: Option<SystemTime>, stale: bool) -> String {
+fn usage_bar(pct: f64) -> String {
+    const WIDTH: usize = 10;
+
+    let filled = ((pct.clamp(0.0, 100.0) / 100.0) * WIDTH as f64).round() as usize;
+    format!("{}{}", "█".repeat(filled), "░".repeat(WIDTH - filled))
+}
+
+fn usage_lines(
+    label: &str,
+    pct: Option<f64>,
+    reset: Option<SystemTime>,
+    stale: bool,
+    view_mode: UsageViewMode,
+) -> Vec<String> {
     match pct {
         Some(pct) => {
             let reset = reset.map(fmt_reset).unwrap_or_else(|| "unknown".into());
             let suffix = if stale { " (last known)" } else { "" };
-            format!("{}: {:.0}% · resets {}{}", label, pct, reset, suffix)
+            match view_mode {
+                UsageViewMode::Simple => vec![format!(
+                    "{}: {:.0}% · resets {}{}",
+                    label, pct, reset, suffix
+                )],
+                UsageViewMode::Bars => vec![
+                    format!("{}: {} {:.0}%", label, usage_bar(pct), pct),
+                    format!("resets {}{}", reset, suffix),
+                ],
+            }
         }
-        None => format!("{}: no data", label),
+        None => vec![format!("{}: no data", label)],
     }
+}
+
+fn usage_items(
+    label: &str,
+    pct: Option<f64>,
+    reset: Option<SystemTime>,
+    stale: bool,
+    view_mode: UsageViewMode,
+) -> Vec<MenuItem<UsageTray>> {
+    let prominent_first_row = view_mode == UsageViewMode::Simple || pct.is_some();
+
+    usage_lines(label, pct, reset, stale, view_mode)
+        .into_iter()
+        .enumerate()
+        .map(|(index, line)| {
+            if prominent_first_row && index == 0 {
+                prominent_item(line)
+            } else {
+                label_item(line)
+            }
+        })
+        .collect()
 }
 
 fn usage_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<UsageTray>> {
@@ -235,20 +287,22 @@ fn usage_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<Usage
         UsageStatus::Error(e) => {
             let mut rows = Vec::new();
             if cfg.show_five_hour && state.five_hour_usage.is_some() {
-                rows.push(label_item(usage_line(
+                rows.extend(usage_items(
                     "5-hour",
                     state.five_hour_usage,
                     state.five_hour_resets_at,
                     true,
-                )));
+                    cfg.view_mode,
+                ));
             }
             if cfg.show_weekly && state.weekly_usage.is_some() {
-                rows.push(label_item(usage_line(
+                rows.extend(usage_items(
                     "Weekly",
                     state.weekly_usage,
                     state.weekly_resets_at,
                     true,
-                )));
+                    cfg.view_mode,
+                ));
             }
             if rows.is_empty() {
                 rows.push(label_item(format!("Error: {}", escape(e))));
@@ -258,20 +312,22 @@ fn usage_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<Usage
         UsageStatus::Ok => {
             let mut rows = Vec::new();
             if cfg.show_five_hour {
-                rows.push(label_item(usage_line(
+                rows.extend(usage_items(
                     "5-hour",
                     state.five_hour_usage,
                     state.five_hour_resets_at,
                     false,
-                )));
+                    cfg.view_mode,
+                ));
             }
             if cfg.show_weekly {
-                rows.push(label_item(usage_line(
+                rows.extend(usage_items(
                     "Weekly",
                     state.weekly_usage,
                     state.weekly_resets_at,
                     false,
-                )));
+                    cfg.view_mode,
+                ));
             }
             rows
         }
@@ -317,5 +373,53 @@ mod tests {
         assert!(account_rows(&state, &display).is_empty());
         assert_eq!(usage_rows(&state, &display).len(), 1);
         assert!(credits_rows(&state, &display).is_empty());
+    }
+
+    #[test]
+    fn formats_simple_usage_without_a_bar() {
+        assert_eq!(
+            usage_lines("5-hour", Some(42.0), None, false, UsageViewMode::Simple),
+            ["5-hour: 42% · resets unknown"]
+        );
+    }
+
+    #[test]
+    fn formats_bar_and_reset_as_separate_rows() {
+        assert_eq!(
+            usage_lines("Weekly", Some(42.0), None, false, UsageViewMode::Bars),
+            ["Weekly: ████░░░░░░ 42%", "resets unknown"]
+        );
+    }
+
+    #[test]
+    fn makes_only_the_bar_row_prominent() {
+        let items = usage_items("Weekly", Some(42.0), None, false, UsageViewMode::Bars);
+
+        let MenuItem::Standard(bar) = &items[0] else {
+            panic!("bar row should be a standard item");
+        };
+        let MenuItem::Standard(reset) = &items[1] else {
+            panic!("reset row should be a standard item");
+        };
+
+        assert!(bar.enabled);
+        assert!(!reset.enabled);
+    }
+
+    #[test]
+    fn makes_the_simple_usage_row_prominent() {
+        let items = usage_items("5-hour", Some(42.0), None, false, UsageViewMode::Simple);
+
+        let MenuItem::Standard(usage) = &items[0] else {
+            panic!("usage row should be a standard item");
+        };
+
+        assert!(usage.enabled);
+    }
+
+    #[test]
+    fn clamps_percentage_bar_to_its_bounds() {
+        assert_eq!(usage_bar(-10.0), "░░░░░░░░░░");
+        assert_eq!(usage_bar(150.0), "██████████");
     }
 }

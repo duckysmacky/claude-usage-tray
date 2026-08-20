@@ -73,6 +73,7 @@ pub struct UsageDisplay {
     pub show: bool,
     pub show_five_hour: bool,
     pub show_weekly: bool,
+    pub view_mode: UsageViewMode,
 }
 
 impl Default for UsageDisplay {
@@ -81,8 +82,17 @@ impl Default for UsageDisplay {
             show: true,
             show_five_hour: true,
             show_weekly: true,
+            view_mode: UsageViewMode::default(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum UsageViewMode {
+    Simple,
+    #[default]
+    Bars,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -174,4 +184,23 @@ fn write_default(path: &Path, config: &Config) -> std::io::Result<()> {
     }
     let toml = toml::to_string_pretty(config).expect("Config always serializes");
     std::fs::write(path, toml)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn usage_view_mode_defaults_to_bars_when_omitted() {
+        let usage: UsageDisplay = toml::from_str("show = true").unwrap();
+
+        assert_eq!(usage.view_mode, UsageViewMode::Bars);
+    }
+
+    #[test]
+    fn usage_view_mode_accepts_simple() {
+        let usage: UsageDisplay = toml::from_str("view_mode = \"simple\"").unwrap();
+
+        assert_eq!(usage.view_mode, UsageViewMode::Simple);
+    }
 }

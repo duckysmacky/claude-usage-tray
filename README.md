@@ -28,6 +28,13 @@ The configuration file is located at `~/.config/claude-usage-tray/config.toml`. 
 
 But most importantly it allows to toggle each display element individually or the whole group of elements. **By default usage credits are hidden** - enable them by setting `display.credits.show = true`.
 
+Usage limits can be displayed as plain text or as percentage bars (default):
+
+```toml
+[display.usage]
+view_mode = "bars" # "simple" or "bars"
+```
+
 ## Installation
 
 ### Using `cargo`
