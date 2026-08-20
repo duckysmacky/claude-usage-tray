@@ -8,7 +8,7 @@ use crate::config::DisplayConfig;
 use crate::icons;
 use crate::state::{Money, UsageState, UsageStatus};
 
-const NEEDS_LOGIN_MSG: &str = "Not logged in - run `claude auth` to authenticate";
+const NEEDS_LOGIN_MSG: &str = "Not logged in or session expired";
 
 pub struct UsageTray {
     state: UsageState,
@@ -148,6 +148,10 @@ fn capitalize(s: &str) -> String {
 }
 
 fn account_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<UsageTray>> {
+    if matches!(state.status, UsageStatus::NeedsLogin) {
+        return Vec::new();
+    }
+
     let cfg = &display.account;
     let mut rows = Vec::new();
     if cfg.show && cfg.show_plan {
@@ -177,6 +181,10 @@ fn money_line(label: &str, money: Option<&Money>, stale: bool) -> String {
 }
 
 fn credits_rows(state: &UsageState, display: &DisplayConfig) -> Vec<MenuItem<UsageTray>> {
+    if matches!(state.status, UsageStatus::NeedsLogin) {
+        return Vec::new();
+    }
+
     let cfg = &display.credits;
     let stale = matches!(state.status, UsageStatus::Error(_));
     let mut rows = Vec::new();
@@ -292,4 +300,22 @@ fn escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hides_account_and_credits_when_login_is_required() {
+        let state = UsageState {
+            status: UsageStatus::NeedsLogin,
+            ..Default::default()
+        };
+        let display = DisplayConfig::default();
+
+        assert!(account_rows(&state, &display).is_empty());
+        assert_eq!(usage_rows(&state, &display).len(), 1);
+        assert!(credits_rows(&state, &display).is_empty());
+    }
 }
