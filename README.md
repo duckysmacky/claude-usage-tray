@@ -69,3 +69,30 @@ In case you want to uninstall:
 claude-usage-tray uninstall
 cargo uninstall claude-usage-tray
 ```
+
+### Using Nix
+
+Add the flake to your inputs:
+
+```nix
+inputs.claude-usage-tray = {
+  url = "github:duckysmacky/claude-usage-tray";
+  inputs.nixpkgs.follows = "nixpkgs";
+};
+```
+
+Then import the module and enable it. For NixOS:
+
+```nix
+imports = [ inputs.claude-usage-tray.nixosModules.default ];
+services.claude-usage-tray.enable = true;
+```
+
+For Home Manager:
+
+```nix
+imports = [ inputs.claude-usage-tray.homeManagerModules.default ];
+services.claude-usage-tray.enable = true;
+```
+
+This installs the app and a user service that starts with `graphical-session.target`.
